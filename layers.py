@@ -172,6 +172,7 @@ def batchnorm_forward(x, gamma, beta, bn_param):
     running_var = bn_param.get('running_var', np.zeros(D, dtype=x.dtype))
 
     out, cache = None, None
+    cache1 = None
     if mode == 'train':
         #######################################################################
         # TODO: Implement the training-time forward pass for batch norm.      #
@@ -197,7 +198,51 @@ def batchnorm_forward(x, gamma, beta, bn_param):
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
         pass
+        #step 1 mean	
+        mu = 1./N * np.sum(x, axis = 0)
+        #mu = np.mean(x, axis=0)
+        
+        #step2 variance var = np.sum((x-mu)**2, axis=0)/N
+        #break down
+        ##step2.1
+        xmu = x - mu
+        ##step2.2
+        sq = xmu ** 2
+        ##step2.3
+        var = 1./N * np.sum(sq, axis = 0)
+        #var = np.var(x, axis=0)
+        
+        #step3 norm : xhat = (x - mu)/np.sqrt(var+eps)
+        #break down
+        #step 3.1
+        sqrtvar = np.sqrt(var+eps)
+        #step 3.2
+        ivar=1./sqrtvar
+        #step 3.3
+        xhat = xmu * ivar
+        #xhat = (x - mu) / np.sqrt(var + eps)
 
+        #step4 y = gamma * xnorm + beta
+        #break down
+        #step4.1
+        gammax = gamma * xhat
+        #step4.2
+        out = gammax + beta
+        #out = gamma * xhat + beta
+        #storage cache
+        # Update our running mean and variance then store.
+        running_mean = momentum * running_mean + (1 - momentum) * mu
+        running_var = momentum * running_var + (1 - momentum) * var
+        bn_param['running_mean'] = running_mean
+        bn_param['running_var'] = running_var
+        # Store intermediate results needed for backward pass.
+        cache = {
+            'x_minus_mean': xmu,
+            'normalized_data': xhat,
+            'gamma': gamma,
+            'ivar': ivar,
+            'sqrtvar': sqrtvar,
+        }        
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         #######################################################################
         #                           END OF YOUR CODE                          #
@@ -213,6 +258,9 @@ def batchnorm_forward(x, gamma, beta, bn_param):
 
         pass
 
+        # Test time batch norm using learned gamma/beta and calculated running mean/var.
+        out = (gamma / (np.sqrt(running_var + eps)) * x) + (beta - (gamma*running_mean)/np.sqrt(running_var + eps))
+        
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         #######################################################################
         #                          END OF YOUR CODE                           #
@@ -254,7 +302,44 @@ def batchnorm_backward(dout, cache):
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
     pass
+    N,D = dout.shape
+    xhat = cache.get('normalized_data')
+    gamma = cache.get('gamma')
+    ivar = cache.get('ivar')
+    xmu = cache.get('x_minus_mean')
+    sqrtvar = cache.get('sqrtvar')
 
+    #step4
+    #step4.2: out = gammax + beta
+    dgammax = 1.0 * dout
+    dbeta = 1 * np.sum(dout, axis=0)
+    ##step4.1: gammax = gamma * xhat
+    dxhat = dgammax * gamma
+    dgamma = np.sum(dgammax*xhat, axis=0)
+
+    #step3 
+    ##step3.3
+    dxmu1=dxhat * ivar
+    divar=np.sum(dxhat * xmu, axis=0)	
+    ##step3.2
+    dsqrtvar = divar*(-1/sqrtvar**2)
+    ##step3.1
+    dvar  = 0.5*(1/sqrtvar)*dsqrtvar
+
+    #step2 
+    ##step2.3
+    dsq = 1/N*np.ones((N,D))*dvar
+    ##step2.2	
+    dxmu2 = 2*xmu*dsq
+    ##step2.1
+    dx1 = dxmu1 + dxmu2
+    dmu = -1 * np.sum(dxmu1+dxmu2, axis=0)
+
+    #step 1
+    dx2 = 1. /N * np.ones((N,D)) * dmu
+
+    #step0
+    dx = dx1 + dx2
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
     #                             END OF YOUR CODE                            #
@@ -289,7 +374,20 @@ def batchnorm_backward_alt(dout, cache):
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
     pass
+    # Get cached variables from foward pass.
+    N, D = dout.shape
+    normalized_data = cache.get('normalized_data')
+    gamma = cache.get('gamma')
+    ivar = cache.get('ivar')
+    x_minus_mean = cache.get('x_minus_mean')
+    sqrtvar = cache.get('sqrtvar')
 
+    # Backprop dout to calculate dbeta and dgamma.
+    dbeta = np.sum(dout, axis=0)
+    dgamma = np.sum(dout * normalized_data, axis=0)
+
+    # Alternative faster formula way of calculating dx. ref: http://cthorey.github.io./backpropagation/
+    dx =(1 / N) * gamma * 1/sqrtvar * ((N * dout) - np.sum(dout, axis=0) - (x_minus_mean) * np.square(ivar) * np.sum(dout * (x_minus_mean), axis=0))
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
     #                             END OF YOUR CODE                            #
@@ -419,7 +517,8 @@ def dropout_forward(x, dropout_param):
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
         pass
-
+        mask = (np.random.rand(*x.shape) < p) / p
+        out = x * mask
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         #######################################################################
         #                           END OF YOUR CODE                          #
@@ -431,7 +530,7 @@ def dropout_forward(x, dropout_param):
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
         pass
-
+        out = x
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         #######################################################################
         #                            END OF YOUR CODE                         #
@@ -462,7 +561,7 @@ def dropout_backward(dout, cache):
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
         pass
-
+        dx = dout * mask
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         #######################################################################
         #                          END OF YOUR CODE                           #
