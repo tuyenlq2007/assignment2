@@ -308,29 +308,34 @@ class FullyConnectedNet(object):
        
         # Forward into first layers
         # {affine - [batch/layer norm] - relu - [dropout]} x (L - 1)
-        cache_hidden_layers = {}
-        cache_affine_layers = {}
-        cache_batchnorm_layers = {}
-        cache_layernorm_layers = {}
-        cache_relu_layers = {}
-        cache_dropout_layers = {}
-        out = X                 
-        for i in range(self.num_layers - 1):
-            layer = i+1
-            out, cache_hidden_layers[layer] = affine_forward (out, self.params['W' + str(layer)], self.params['b' + str(layer)] )  
-            if self.normalization =='batchnorm':
-                out, cache_batchnorm_layers[layer] = batchnorm_forward(out, self.params['gamma' + str(i)], self.params['beta' + str(layer)], self.bn_param[layer])
-                
-            if self.normalization=='layernorm':
-                out, cache_layernorm_layers[layer] = layernorm_forward(out, self.params['gamma' + str(i)], self.params['beta' + str(layer)], self.ln_param[layer])      
-            
-            out, cache_relu_layers[layer] = relu_forward(out)
-            
+        fc_cache = {}
+        relu_cache = {}
+        bn_cache = {}
+        dropout_cache = {}
+        batch_size = X.shape[0]
+
+        X = np.reshape(X, [batch_size, -1])  # Flatten our input images.
+
+        # Do as many Affine-Relu forward passes as required (num_layers - 1).
+        # Apply batch norm and dropout as required.
+        for i in range(self.num_layers-1):
+
+            fc_act, fc_cache[str(i+1)] = affine_forward(X, self.params['W'+str(i+1)], self.params['b'+str(i+1)])
+            if self.normalization=='batchnorm':
+                bn_act, bn_cache[str(i+1)] = batchnorm_forward(fc_act, self.params['gamma'+str(i+1)], self.params['beta'+str(i+1)], self.bn_params[i])
+                relu_act, relu_cache[str(i+1)] = relu_forward(bn_act)
+            elif self.normalization=='layernorm':
+                ln_act, bn_cache[str(i+1)] = layernorm_forward(fc_act, self.params['gamma'+str(i+1)], self.params['beta'+str(i+1)], self.bn_params[i])
+                relu_act, relu_cache[str(i+1)] = relu_forward(ln_act)                
+            else:
+                relu_act, relu_cache[str(i+1)] = relu_forward(fc_act)
             if self.use_dropout:
-                out, cache_dropout_layers[layer] = dropout_forward(out, self.dropout_param[layer])
-                     
-        # Forward into last FC layer
-        scores, cache_scores = affine_forward(out, self.params['W' + str(self.num_layers)], self.params['b' + str(self.num_layers)])
+                relu_act, dropout_cache[str(i+1)] = dropout_forward(relu_act, self.dropout_param)
+
+            X = relu_act.copy()  # Result of one pass through the affine-relu block.
+
+        # Final output layer is FC layer with no relu.
+        scores, final_cache = affine_forward(X, self.params['W'+str(self.num_layers)], self.params['b'+str(self.num_layers)])
         
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
@@ -342,16 +347,6 @@ class FullyConnectedNet(object):
             return scores
 
         loss, grads = 0.0, {}
-        
-        # Calculate score loss and add reg. loss for last FC layer.        
-        data_loss, dscores = softmax_loss(scores, y)
-        #loss += 0.5*self.reg*(np.sum(np.square(self.params['W'+str(self.num_layers)])))
-        for i in range(self.num_layers-1):
-            layer = i + 1
-            reg_loss = 0.5*self.reg*np.sum(self.params['W' + str(layer)]*self.params['W' + str(layer)])
-            
-        reg_loss = reg_loss + 0.5*self.reg*np.sum(self.params['W' + str(self.num_layers)]*self.params['W' + str(self.num_layers)])
-        loss = data_loss + reg_loss
         
         ############################################################################
         # TODO: Implement the backward pass for the fully-connected net. Store the #
@@ -368,37 +363,45 @@ class FullyConnectedNet(object):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        # Calculate score loss and add reg. loss for last FC layer.
+        loss, dsoft = softmax_loss(scores, y)
+        loss += 0.5*self.reg*(np.sum(np.square(self.params['W'+str(self.num_layers)])))
 
-        # Backprop into last FC layer
-        dx_last, grads['W' + str(self.num_layers)], grads['b' + str(self.num_layers)] = affine_backward(dscores, cache_scores)
-        
+        # Backprop dsoft to the last FC layer to calculate gradients.
+        dx_last, dw_last, db_last = affine_backward(dsoft, final_cache)
+
         # Store gradients of the last FC layer
-        grads['W' + str(self.num_layers)] += self.reg * self.params['W' + str(self.num_layers)]
-        
-        # Iteratively backprop through each Relu & FC layer to calculate gradients.
-        # Go through batchnorm and dropout layers if needed
-        # {affine - [batch/layer norm] - relu - [dropout]} x (L - 1)
-        for i in range(self.num_layers - 1, 0, -1):
-            
-            if self.use_dropout:
-                dx_last = dropout_backward(dx_last, cache_dropout_layers[i])
-                
-            drelu = relu_backward(dx_last, cache_relu_layers[i])
-            
-            if self.normalization=='layernorm':
-                dlayernorm, grads['gamma' + str(i)], grads['beta' + str(i)] = layernorm_backward(drelu, cache_layernorm_layers[i])
-                dx_last, grads['W' + str(i)], grads['b' + str(i)] = affine_backward(dlayernorm, cache_hidden_layers[i])
-                
-            if self.normalization=='batchnorm':
-                dbatchnorm, grads['gamma' + str(layer)], grads['beta' + str(i)] = batchnorm_backward(drelu, cache_batchnorm_layers[i])
-                dx_last, grads['W' + str(i)], grads['b' + str(i)] = affine_backward(dbatchnorm, cache_hidden_layers[i])
+        grads['W'+str(self.num_layers)] = dw_last + self.reg*self.params['W'+str(self.num_layers)]
+        grads['b'+str(self.num_layers)] = db_last
 
-            if self.normalization==None:
-                dx_last, grads['W' + str(i)], grads['b' + str(i)] = affine_backward(drelu, cache_hidden_layers[i])
-                
+        # Iteratively backprop through each Relu & FC layer to calculate gradients.
+        # Go through batchnorm and dropout layers if needed.
+        for i in range(self.num_layers-1, 0, -1):
+
+            if self.use_dropout:
+                dx_last = dropout_backward(dx_last, dropout_cache[str(i)])
+
+            drelu = relu_backward(dx_last, relu_cache[str(i)])
+
+            if self.normalization=='batchnorm':
+                dbatchnorm, dgamma, dbeta = batchnorm_backward(drelu, bn_cache[str(i)])
+                dx_last, dw_last, db_last = affine_backward(dbatchnorm, fc_cache[str(i)])
+                grads['beta' + str(i)] = dbeta
+                grads['gamma' + str(i)] = dgamma
+            elif self.normalization=='layernorm':
+                dlnorm, dgamma, dbeta = layernorm_backward(drelu, bn_cache[str(i)])
+                dx_last, dw_last, db_last = affine_backward(dlnorm, fc_cache[str(i)])
+                grads['beta' + str(i)] = dbeta
+                grads['gamma' + str(i)] = dgamma
+            else:
+                dx_last, dw_last, db_last = affine_backward(drelu, fc_cache[str(i)])
+
+            # Store gradients.
+            grads['W' + str(i)] = dw_last + self.reg * self.params['W' + str(i)]
+            grads['b' + str(i)] = db_last
+
             # Add reg. loss for each other FC layer.
-            loss += 0.5 * self.reg * (np.sum(np.square(grads['W' + str(i)])))            
+            loss += 0.5 * self.reg * (np.sum(np.square(self.params['W' + str(i)])))         
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
