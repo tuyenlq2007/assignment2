@@ -237,6 +237,10 @@ class FullyConnectedNet(object):
                 self.params['beta' + str(layer)] = np.zeros([hidden_dims[i]])
                 self.params['gamma' + str(layer)] = np.ones([hidden_dims[i]])
 
+            if self.normalization == 'layernorm':
+                self.params['beta' + str(layer)] = np.zeros([hidden_dims[i]])
+                self.params['gamma' + str(layer)] = np.ones([hidden_dims[i]])
+                
             input_dim = hidden_dims[i]  # Set the input dim of next layer to be output dim of current layer.            
         # Initialise the weights and biases for final FC layer 
         # affine - softmax
@@ -265,8 +269,8 @@ class FullyConnectedNet(object):
         self.bn_params = []
         if self.normalization is not None:
             self.bn_params = [{'mode': 'train'} for i in range(self.num_layers - 1)]
-        if self.normalization=='layernorm':
-            self.bn_params = [{} for i in range(self.num_layers - 1)]
+#        if self.normalization=='layernorm':
+#            self.bn_params = [{} for i in range(self.num_layers - 1)]
 
         # Cast all parameters to the correct datatype
         for k, v in self.params.items():
@@ -287,6 +291,9 @@ class FullyConnectedNet(object):
         if self.use_dropout:
             self.dropout_param['mode'] = mode
         if self.normalization=='batchnorm':
+            for bn_param in self.bn_params:
+                bn_param['mode'] = mode
+        if self.normalization=='layernorm':
             for bn_param in self.bn_params:
                 bn_param['mode'] = mode
         scores = None

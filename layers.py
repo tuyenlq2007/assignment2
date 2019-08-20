@@ -433,6 +433,44 @@ def layernorm_forward(x, gamma, beta, ln_param):
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
     pass
+    N, D = x.shape
+    # Tranpose x to use bath normalization code, now x is of shape (D, N)
+    x = x.T
+    #step 1 mean
+    mu = 1./N * np.sum(x, axis = 0)
+    #step2 variance var = np.sum((x-mu)**2, axis=1)/D
+    #break down
+    ##step2.1
+    xmu = x - mu
+    ##step2.2
+    sq = xmu ** 2
+    ##step2.3
+    var = 1./N * np.sum(sq, axis = 0)
+    #step3 norm : xhat = (x - mu)/np.sqrt(var+eps)
+    #break down
+    #step 3.1
+    sqrtvar = np.sqrt(var+eps)
+    #step 3.2
+    ivar=1./sqrtvar
+    #step 3.3
+    xhat = xmu * ivar
+    #step4 y = gamma * xnorm + beta
+    #break down
+    # Transpose back, now shape of xhat (N, D)
+    xhat = xhat.T
+    #step4.1   
+    gammax = gamma * xhat
+    #step4.2
+    out = gammax + beta
+    #storage cache
+    # Store intermediate results needed for backward pass.
+    cache = {
+        'x_minus_mean': xmu,
+        'normalized_data': xhat,
+        'gamma': gamma,
+        'ivar': ivar,
+        'sqrtvar': sqrtvar,
+    }        
 
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
@@ -468,7 +506,51 @@ def layernorm_backward(dout, cache):
     # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
     pass
+    #N,D = dout.shape
+    xhat = cache.get('normalized_data')
+    gamma = cache.get('gamma')
+    ivar = cache.get('ivar')
+    xmu = cache.get('x_minus_mean')
+    sqrtvar = cache.get('sqrtvar')
 
+    #step4
+    #step4.2: out = gammax + beta
+    dgammax = 1.0 * dout
+    dbeta = 1 * np.sum(dout, axis=0)
+    ##step4.1: gammax = gamma * xhat
+    dxhat = dgammax * gamma   
+    dgamma = np.sum(dgammax*xhat, axis=0)
+    # Transpose dxhat and xhat back
+    dxhat = dxhat.T
+    xhat = xhat.T
+    N, D = xhat.shape
+    #step3 
+    ##step3.3
+    dxmu1=dxhat * ivar
+    divar=np.sum(dxhat * xmu, axis=0)	
+    ##step3.2
+    dsqrtvar = divar*(-1/sqrtvar**2)
+    ##step3.1
+    dvar  = 0.5*(1/sqrtvar)*dsqrtvar
+
+    #step2 
+    ##step2.3
+    dsq = 1/N*np.ones((N,D))*dvar
+    ##step2.2	
+    dxmu2 = 2*xmu*dsq
+    ##step2.1
+    dx1 = dxmu1 + dxmu2
+    dmu = -1 * np.sum(dxmu1+dxmu2, axis=0)
+
+    #step 1
+    dx2 = 1. /N * np.ones((N,D)) * dmu
+
+    #step0
+    dx = dx1 + dx2
+    
+    # Transpose dx back
+    dx = dx.T
+    
     # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
     ###########################################################################
     #                             END OF YOUR CODE                            #
